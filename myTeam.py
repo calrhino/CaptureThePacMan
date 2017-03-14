@@ -44,6 +44,7 @@ class ReflexCaptureAgent(CaptureAgent):
   """
   A base class for reflex agents that chooses score-maximizing actions
   """
+
   def chooseAction(self, gameState):
     """
     Picks among the actions with the highest Q(s,a).
@@ -59,39 +60,51 @@ class ReflexCaptureAgent(CaptureAgent):
     bestActions = [a for a, v in zip(actions, values) if v == maxValue]
 
     return random.choice(bestActions)
+    # tried to implement expectmax but couldn't
+    # newvalue = float('-Infinity')                 #assign the newvalue to negative infinity
+    # treeDepth = 1
+    # for a in gameState.getLegalActions(self.index):           # for the actions in the gameState legal actions
+    #   succ = self.getSuccessor(gameState,a)
+    #   oldvalue = newvalue                           # assign the old value to the new value
+    #   newvalue = max(newvalue, self.expectValue(succ, treeDepth)) #new value will be the max of new value and the 
+    #                                               #minValue with gameState successor, treeDepth and 1 ghost
+    #   if newvalue > oldvalue: # if the new value is bigger than the old value to make sure it is a good and legal action
+    #     action = a             #have to do this to find the max of an action in a loop
 
-  def maxValueMiniMax(self, gameState, treeDepth):        # the max value of the minimax tree with gameState and treeDepth
-      if state.isOver():            # terminal state and if true, then return the evaluation function since it finished
-        return self.evaluate(gameState, Directions.STOP) #goes to the scoreEvaluation Function
+    # return action #returns the action
+
+  #tried to implement
+  def maxValueExpect(gameState, treeDepth):
+       # terminal state
+      if treeDepth == 0:
+        return self.evaluate(gameState,Directions.STOP)     #returns the heuristic value of the node
+
+      value = float("-Infinity")
+      for a in gameState.getLegalActions(self.index):          #for actions in the legal actions of pacman
+        succ = self.getSuccessor(0,a)
+        bestActions = max(value, self.expectValue(succ, treeDepth, 1)) #find the max of value and expectValue with its succ, treeDepth, and a ghost
+
+      return bestActions
+
+    # agent will no longer take min over all ghost actions, but the expectation according to your agent's model of how the ghosts act
+  def expectValue(gameState, treeDepth, ghost):
+      if treeDepth == 0:
+        return self.evaluate(gameState,Directions.STOP)     #returns the heuristic value of the node, which is evaluationFunction
+
+      value = float('Infinity')
+      totalAgents = gameState.getNumAgents()-1      #assign total Agents to num of ghosts by gameState.getNumAgents -1
+      ghostMoves = gameState.getLegalActions(self.index)
+      ghostMovesNum = len(ghostMoves)          #this helps to determine how the ghost will act by getting the int of ghostMoves
       
-      value = float('-Infinity') #value is negative infinity
-      for a in gameState.getLegalActions(0): #for a in the the legal actions of the pacman
-        #if a != Directions.STOP:
-          succ = gameState.generateSuccessor(0,a) #generate the successor of actions
-          minValueMAX = minValueMiniMax(succ, treeDepth, 1)
-          value = max(value, minValueMAX) #assign the value to the max of value and minValue containing succ
-                                                                #tree depth, and a ghost
-      return value  #returns the value
-
-  #multiple min layers (one for each ghost) for every max layer
-  def minValueMiniMax(self, gameState, treeDepth, ghost):  # the min value of the minimax tree with gamestate, treeDepth, and ghost
-      if state.isOver() or treeDepth == 0:    #terminal state of the program and treeDepth == 0 since it is to prevent max recursion 
-                                          # and if true, it return the evaluationFunction of gameState
-        return self.evaluate(gameState, Directions.STOP) # goes to the scorceEvaluation function
-
-      value = float('Infinity')                        # in min value, the value is infinity
-      totalAgents = gameState.getNumAgents()-1         # the total agents is the total number of agents in the game
-      for a in gameState.getLegalActions(ghost):       # for the actions in the legal actions of the ghost
-        #if a != Directions.STOP:
-        if ghost == totalAgents:                       # if the ghost is equal to totalAgents, then find the min of value and maxValue
-          succ = self.getSuccessor(ghost,a)
-          maxValue = maxValueMiniMax(succ, treeDepth-1) # the minus one prevent the exceeding the maximum recursion depth 
-          value = min(value, maxValue) # the value is the min of value and maxValue with it succ, and treedepth-1
-        else:                           #if the ghost doesn't equal to the total agents in the game
-          succ = self.getSuccessor(ghost,a)
-          minValue = minValueMiniMax(succ, treeDepth, ghost+1)
-          value = min(value, minValue) #the value would be the min of value and minValue with succ, treedDepth, and ghost
-      return value #returns the value
+      for a in ghostMoves:                     #for the actions in the legal actions of the ghosts 
+        if self.index == totalAgents:               #if the ghost is equal to the total agents, then find the min of value and maxValue
+          succ = gameState.generateSuccessor(self.index,a)
+          value = min(value, maxValueExpect(succ, treeDepth-1)) # the minus one prevent the exceeding the maximum recursion depth 
+        else:
+          succ = gameState.generateSuccessor(self.index,a)    #if it is not equal, then add one to the ghost and run expectValue again
+          value = min(value, expectValue(succ, treeDepth, self.index+1)) 
+      
+      return (value+ghostMovesNum)      #the value which is expectation of the min + the ghostMovesNum, which how the ghost may act.
 
   def getSuccessor(self, gameState, action):
     """
@@ -147,27 +160,40 @@ class OffensiveAgent(ReflexCaptureAgent):
       minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
       features['distanceToFood'] = minDistance
 
+    #get the enemies and its state
     enemies = [successor.getAgentState(e) for e in self.getOpponents(successor)]
-    ghosts = [g for g in enemies if not g.isPacman and g.getPosition() != None]
-    invaders = [i for i in enemies if i.isPacman and i.getPosition() != None]
     
-    if len(invaders) != 0:
-      for i in invaders:
-        invadePos = [i.getPosition()]
-    else:
+    #find the ghost in the enemies
+    ghosts = [ghost for ghost in enemies if ghost.isPacman and ghost.getPosition() != None]
+    #find the invaders in the rank of the enemies
+    invaders = [invader for invader in enemies if invader.isPacman and invader.getPosition() != None]
+    
+    #find the enemies position and try to avoid them
+    invaderLength = len(invaders)
+    if invaderLength == 0:
+      #find the ghosts position
       for g in ghosts:
         ghostPos = [g.getPosition()]
+      
+    else:
+      #find the invaders position
+      for i in invaders:
+        invadePos = [i.getPosition()]
 
-    # if the other team paceman is a distance away to my pacman
-    if len(invaders) != 0 and not successor.getAgentState(self.index).isPacman:
-        for pacman in invadePos:
-          distanceToPacman = min([self.getMazeDistance(myPos, pacman)])
+    # find the invader if it is near the offensive pacman. It seems to trap but not kill
+    if invaderLength!= 0 and not successor.getAgentState(self.index).isPacman:
+        #see the invader position
+        for invadePacman in invadePos:
+          maze = self.getMazeDistance
+          distanceToPacman = min([maze(myPos, invadePacman)])
+          #trap the pacman
         if distanceToPacman <= 1:
-            features['distToInvader'] = distanceToPacman
+            features['trapInvader'] = distanceToPacman
+    
     return features
 
   def getWeights(self, gameState, action):
-    return {'distToInvader': 100,'successorScore': 100, 'distanceToFood': -1}
+    return {'trapInvader': 80,'successorScore': 100, 'distanceToFood': -1}
 
 class DefensiveAgent(ReflexCaptureAgent):
   """
@@ -183,38 +209,49 @@ class DefensiveAgent(ReflexCaptureAgent):
 
     myState = successor.getAgentState(self.index)
     myPos = myState.getPosition()
-    foodList = self.getFood(successor).asList()
+    foodList = self.getFood(successor).asList() #tries to guard the food area
 
     # Computes whether we're on defense (1) or offense (0)
     features['onDefense'] = 1
     if myState.isPacman: features['onDefense'] = 0
 
-    #go to the nearest food when there are no invaders
-    if len(foodList) > 0: # This should always be True,  but better safe than sorry
-      minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-      features['distanceToFood'] = minDistance
-
     # Computes distance to invaders we can see
+    # get the enemies position
     enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
+    #find the invaders
     invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
+    
     features['numInvaders'] = len(invaders)
+    #if there are invaders in our side
     if len(invaders) > 0:
       dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
       features['invaderDistance'] = min(dists)
     
-    #invade pacman
-    ghosts = [g for g in enemies if not g.isPacman and g.getPosition() != None]
-    if len(invaders) != 0:
-      for i in invaders:
-        invadePos = [i.getPosition()]
-    else:
-      for g in ghosts:
-        ghostPos = [g.getPosition()]
-    if len(invaders) != 0 and not successor.getAgentState(self.index).isPacman:
-        for pacman in invadePos:
-          distanceToPacman = min([self.getMazeDistance(myPos, pacman)])
-        if distanceToPacman <= 5:
-            features['distanceToInvader'] = distanceToPacman
+    #invade pacman but doesnt
+    ghosts = [ghost for ghost in enemies if ghost.isPacman and ghost.getPosition() != None]
+    #find the invaders in the rank of the enemies
+    # invaders = [invader for invader in enemies if invader.isPacman and invader.getPosition() != None]
+    
+    # #find the enemies position and try to avoid them
+    # invaderLength = len(invaders)
+    # if invaderLength == 0:
+    #   #find the ghosts position
+    #   for g in ghosts:
+    #     ghostPos = [g.getPosition()]
+      
+    # else:
+    #   #find the invaders position
+    #   for i in invaders:
+    #     invadePos = [i.getPosition()]
+
+    # # find the invader if it is near the offensive pacman. It seems to trap but not kill
+    # if invaderLength!= 0:
+    #     for invadePacman in invadePos:
+    #       maze = self.getMazeDistance
+    #       distanceToPacman = min([maze(myPos, invadePacman)])
+    #     if distanceToPacman <= 1:
+    #         features['stopInvader'] = distanceToPacman
+    
 
     if action == Directions.STOP: features['stop'] = 1
     rev = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
